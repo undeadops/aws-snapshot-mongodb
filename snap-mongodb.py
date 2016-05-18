@@ -11,6 +11,8 @@ import time
 import sys
 import logging
 
+import pprint
+
 from pymongo import MongoClient
 import boto3
 #from config import config
@@ -25,6 +27,44 @@ def check_if_primary(config):
         return False
 
 
+def create_snapshot(volumes):
+    """
+    Create Snapshots from List volumes
+    """
+    ec2 = boto3.resource("ec2")
+    for volume in volumes:
+        for tag in volume['volume_tags']:
+            if tag['Key'] == 'Name':
+                volume_name = tag['Value']
+        description = "Snapshot of %s - Created %s" % ( volume_name, curdate() )
+        snapshot = ec2.create_snapshot(VolumeId=volume['VolumeId'], Description=description)
+        tags = snapshot.create_tags(
+                Tags=volume['volume_tags']
+        )
+        print "Snapshot: %s" % snapshot
+
+
+def get_volumes(instance):
+    """
+    With Instance, take Instance Name append _data, return list of matching volume ids
+    """
+    volumes = []
+    for tag in instance['Tags']:
+        if tag['Key'] == 'Name':
+            volume_tag_reference = "%s_data" % tag['Value']
+
+    for volume in instance['volumes']:
+        if volume['volume_tags'] != None:
+            for volume_tag in volume['volume_tags']:
+                if volume_tag['Key'] == 'Name' and volume_tag['Value'] == volume_tag_reference:
+                    volumes.append(volume['VolumeId'])
+    snapshot_volumes = []
+    for volume in instance['volumes']:
+        if volume['VolumeId'] in volumes:
+            vol = {"VolumeId": volume['VolumeId'], "volume_tags": volume['volume_tags']}
+            snapshot_volumes.append(vol)
+    return snapshot_volumes
+
 def get_instance():
     """
     Query cloud-init for aws instance ID
@@ -32,8 +72,25 @@ def get_instance():
     logging.debug("Querying cloud-init for instance-id")
     instance_id = requests.get("http://169.254.169.254/latest/meta-data/instance-id").text
     client = boto3.client('ec2')
-    instance = client.describe_instances(InstanceIds=[instance_id])
-    return instance['Reservations'][0]['Instances'][0]
+    ec2_resource = boto3.resource('ec2')
+    aws_instance = client.describe_instances(InstanceIds=[instance_id])
+    instance = aws_instance['Reservations'][0]['Instances'][0]
+    ebs_volumes = []
+    for device in instance['BlockDeviceMappings']:
+        volume_info = ec2_resource.Volume(device['Ebs']['VolumeId'])
+        ebs_volume = {u"VolumeId": device['Ebs']['VolumeId'],
+                      u"DeviceName": device['DeviceName'],
+                      u"volume_type": volume_info.volume_type,
+                      u"size": volume_info.size,
+                      u"snapshot_id": volume_info.snapshot_id,
+                      u"iops": volume_info.iops,
+                      u"availability_zone": volume_info.availability_zone,
+                      u"encrypted": volume_info.encrypted,
+                      u"volume_tags": volume_info.tags }
+        ebs_volumes.append(ebs_volume)
+    instance[u'volumes'] = ebs_volumes
+    return instance
+
 
 def curdate():
         return datetime.today().strftime('%d-%m-%Y %H:%M:%S')
@@ -62,7 +119,11 @@ def main():
                         "date": curdate(),
                         "instance_id": instance['InstanceId']
                         } )
-
+    pprint.pprint(instance)
+    volumes = get_volumes(instance)
+    logging.info("%s - Backing up volume Ids: %s" % (curdate(), volumes))
+    print volumes
+    create_snapshot(volumes)
 
 
 if __name__ == '__main__':
