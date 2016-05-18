@@ -16,13 +16,14 @@ import boto3
 #from config import config
 
 def check_if_primary(config):
-    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admin" % { username: config.user, password: config.password }
+    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admin" % { "username": config.username, "password": config.password }
     logging.debug("Connecting to MonogoDB: %s" % mongo_uri)
     client = MongoClient(mongo_uri)
     try:
         return client.is_primary
     except:
         return False
+
 
 def get_instance():
     """
@@ -31,19 +32,19 @@ def get_instance():
     logging.debug("Querying cloud-init for instance-id")
     instance_id = requests.get("http://169.254.169.254/latest/meta-data/instance-id").text
     client = boto3.client('ec2')
-    return client.describe_instances(InstanceIds=[instance_id])
+    instance = client.describe_instances(InstanceIds=[instance_id])
+    return instance['Reservations'][0]['Instances'][0]
 
 def curdate():
         return datetime.today().strftime('%d-%m-%Y %H:%M:%S')
 
-get get_instance
 
 def main():
     """
     Create Snapshots of attached mongodb volumes - based on EC2 EBS Tag
     """
     parser = argparse.ArgumentParser(description='Snapshot MongoDB EBS RAID disks')
-    parser.add_argument('-u', dest="user", help="Local MongoDB user")
+    parser.add_argument('-u', dest="username", help="Local MongoDB user")
     parser.add_argument('-p', dest="password", help="Local MongoDB password")
     parser.add_argument('--primary', action='store_true', dest="is_primary", default=False, help="Take Snapshot even in MongoDB is Primary")
     parser.add_argument('--loglevel', action="store", dest="loglevel", default='INFO', help="Log Level")
@@ -59,8 +60,9 @@ def main():
     instance = get_instance()
     logging.debug("%(date)s - Instance %(instance_id)s" % {
                         "date": curdate(),
-                        "instance_id": instance['Reservations'][0]['Instances'][0]['InstanceId']
+                        "instance_id": instance['InstanceId']
                         } )
+
 
 
 if __name__ == '__main__':
