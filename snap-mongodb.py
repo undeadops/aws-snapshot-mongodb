@@ -17,7 +17,27 @@ from pymongo import MongoClient
 import boto3
 #from config import config
 
-def check_if_primary(config):
+def mongo_lock(config):
+    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admion" % {"username": config.username, "password": config.password }
+    logging.info("Locking MongoDB")
+    client = MongoClient(mongo_uri)
+    try:
+        return client.fsync(lock=True)
+    except:
+        return False
+
+
+def mongo_unlock(config):
+    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admion" % {"username": config.username, "password": config.password }
+    logging.info("Locking MongoDB")
+    client = MongoClient(mongo_uri)
+    try:
+        return client.unlock()
+    except:
+        return False
+
+
+def mongo_check_if_primary(config):
     mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admin" % { "username": config.username, "password": config.password }
     logging.debug("Connecting to MonogoDB: %s" % mongo_uri)
     client = MongoClient(mongo_uri)
@@ -32,16 +52,19 @@ def create_snapshot(volumes):
     Create Snapshots from List volumes
     """
     ec2 = boto3.resource("ec2")
+    snapshots = []
     for volume in volumes:
         for tag in volume['volume_tags']:
             if tag['Key'] == 'Name':
                 volume_name = tag['Value']
         description = "Snapshot of %s - Created %s" % ( volume_name, curdate() )
         snapshot = ec2.create_snapshot(VolumeId=volume['VolumeId'], Description=description)
+        snapshots.append(snapshot)
         tags = snapshot.create_tags(
                 Tags=volume['volume_tags']
         )
-        print "Snapshot: %s" % snapshot
+        logging.info("%s Created Snapshot: %s" % (curdate, snapshot))
+    return snapshots
 
 
 def get_volumes(instance):
@@ -64,6 +87,7 @@ def get_volumes(instance):
             vol = {"VolumeId": volume['VolumeId'], "volume_tags": volume['volume_tags']}
             snapshot_volumes.append(vol)
     return snapshot_volumes
+
 
 def get_instance():
     """
@@ -93,7 +117,7 @@ def get_instance():
 
 
 def curdate():
-        return datetime.today().strftime('%d-%m-%Y %H:%M:%S')
+        return datetime.today().strftime('%m-%d-%Y %H:%M:%S')
 
 
 def main():
@@ -109,7 +133,7 @@ def main():
     loglevel = getattr(logging, config.loglevel.upper())
     logging.basicConfig(filename='/var/log/snapshot-mongodb.log', level=loglevel )
     # TODO: Better way to do this... likely...
-    if check_if_primary(config) and not config.is_primary:
+    if mongo_check_if_primary(config) and not config.is_primary:
         logging.info("%s - Local MongoDB is current Primary - Not running snapshot" % curdate())
         sys.exit(0)
     logging.info("%s - Starting MongoDB disk snapshots" % curdate())
@@ -119,11 +143,15 @@ def main():
                         "date": curdate(),
                         "instance_id": instance['InstanceId']
                         } )
-    pprint.pprint(instance)
+
+    # Get volumes labeld <hostname>_data - Used for Mongo
     volumes = get_volumes(instance)
     logging.info("%s - Backing up volume Ids: %s" % (curdate(), volumes))
-    print volumes
-    create_snapshot(volumes)
+    # Run Lock and Snapshot
+    mongo_lock(config)
+    snapshots = create_snapshot(volumes)
+    logging.debug("Snapshots Created: %s " % snapshots)
+    mongo_unlock(config)
 
 
 if __name__ == '__main__':
