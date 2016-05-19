@@ -29,7 +29,7 @@ def mongo_lock(config):
 
 def mongo_unlock(config):
     mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admion" % {"username": config.username, "password": config.password }
-    logging.info("Locking MongoDB")
+    logging.info("UnLocking MongoDB")
     client = MongoClient(mongo_uri)
     try:
         return client.unlock()
@@ -59,11 +59,12 @@ def create_snapshot(volumes):
                 volume_name = tag['Value']
         description = "Snapshot of %s - Created %s" % ( volume_name, curdate() )
         snapshot = ec2.create_snapshot(VolumeId=volume['VolumeId'], Description=description)
+        logging.info("%s - Creating Snapshot of %s - SnapshotId: %s" % (curdate(), snapshot.volume_id, snapshot.id))
         snapshots.append(snapshot)
         tags = snapshot.create_tags(
                 Tags=volume['volume_tags']
         )
-        logging.info("%s Created Snapshot: %s" % (curdate, snapshot))
+        logging.info("%s Updated Tags on Snapshot: %s" % (curdate, snapshot.id))
     return snapshots
 
 
@@ -132,6 +133,7 @@ def main():
     config = parser.parse_args()
     loglevel = getattr(logging, config.loglevel.upper())
     logging.basicConfig(filename='/var/log/snapshot-mongodb.log', level=loglevel )
+    logging.getLogger('boto').setLevel(logging.CRITICAL)
     # TODO: Better way to do this... likely...
     if mongo_check_if_primary(config) and not config.is_primary:
         logging.info("%s - Local MongoDB is current Primary - Not running snapshot" % curdate())
