@@ -18,7 +18,7 @@ import boto3
 #from config import config
 
 def mongo_lock(config):
-    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admion" % {"username": config.username, "password": config.password }
+    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admin" % {"username": config.username, "password": config.password }
     logging.info("Locking MongoDB")
     client = MongoClient(mongo_uri)
     try:
@@ -28,7 +28,7 @@ def mongo_lock(config):
 
 
 def mongo_unlock(config):
-    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admion" % {"username": config.username, "password": config.password }
+    mongo_uri = "mongodb://%(username)s:%(password)s@localhost/admin" % {"username": config.username, "password": config.password }
     logging.info("UnLocking MongoDB")
     client = MongoClient(mongo_uri)
     try:
